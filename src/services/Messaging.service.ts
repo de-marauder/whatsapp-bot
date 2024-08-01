@@ -2,17 +2,19 @@ import axios, { AxiosError } from 'axios';
 import { EnvVars } from '../config/loadEnv';
 import { env } from '../helpers/env';
 import { IntentsService, IntentsSvc } from './Intents.service';
-import { logger } from '../helpers/Logger';
+import { LogTrail } from '../helpers/Logger';
 import { ResponseTypes } from '../types/response.types';
-import { AnyMessageEvent, ImageMessageEvent, MessageContact, MessageEvent, ReplyInteractiveMessageEvent, TextMessageEvent } from '../types/message.types';
+import { AnyMessageEvent, MessageContact, MessageEvent } from '../types/message.types';
 
 
 const WHATSAPP_API_URL = `https://graph.facebook.com/v20.0/${env(EnvVars.PHONE_NUMBER_ID)}/messages`;
 const ACCESS_TOKEN = `${env(EnvVars.ACCESS_TOKEN)}`;
 
 export class MessagingService {
+  private readonly logger = new LogTrail('MessagingService');
   constructor(private intentsSvc: IntentsService) {
     this.intentsSvc = intentsSvc;
+    this.logger.log('MessagingService loaded successfully...')
   }
 
   process(message: MessageEvent, contact: MessageContact) {
@@ -39,8 +41,8 @@ export class MessagingService {
         }
       );
     } catch (error) {
-      logger.error('Error sending message:', error);
-      if (error instanceof AxiosError) logger.error('Error sending message:', error.response?.data.error);
+      this.logger.error('Error sending message:', error);
+      if (error instanceof AxiosError) this.logger.error('Error sending message:', error.response?.data.error);
     }
   };
 }

@@ -1,6 +1,17 @@
-import { AddressInteractiveWhatsappResponse, ButtonInteractiveWhatsappResponse, ListInteractiveWhatsappResponse, LocationRequestInteractiveWhatsappResponse, TextWhatsAppResponse } from "../types/response.types";
+import { LogTrail } from "../helpers/Logger";
+import {
+  AddressInteractiveWhatsappResponse,
+  ButtonInteractiveWhatsappResponse,
+  ListInteractiveWhatsappResponse,
+  LocationRequestInteractiveWhatsappResponse,
+  TextWhatsAppResponse,
+} from "../types/response.types";
 
 export class ResponseService {
+  private readonly logger = new LogTrail('ResponseService');
+  constructor() {
+    this.logger.log('ResponseService loaded successfully...')
+  }
   textResponse(to: string, body: string): TextWhatsAppResponse {
     return {
       messaging_product: 'whatsapp',
@@ -36,7 +47,7 @@ export class ResponseService {
       }
     }
   }
-  
+
   listInteractiveResponse(
     to: string,
     body: string,

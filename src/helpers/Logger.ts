@@ -1,5 +1,5 @@
 
-export class LogTrial {
+export class LogTrail {
 
   constructor(private name?: string) {
     this.name = name;
@@ -14,4 +14,4 @@ export class LogTrial {
   }
 }
 
-export const logger = new LogTrial();
+export const logger = new LogTrail();
