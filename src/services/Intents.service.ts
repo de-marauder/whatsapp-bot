@@ -1,5 +1,5 @@
 import { PriceList } from "../constants/pricing.const";
-import { LogTrial } from "../helpers/Logger";
+import { LogTrail } from "../helpers/Logger";
 import { randomSixDigits } from "../helpers/random";
 import { IOrder, OrderModel } from "../model/Order.model";
 import {
@@ -20,10 +20,11 @@ type IntentConfig = Record<Intent, {
 const SPECIAL_DELIMITER = '-*-';
 
 export class IntentsService {
-  private readonly logger = new LogTrial('IntentsService');
+  private readonly logger = new LogTrail('IntentsService');
 
   constructor(private responseSvc: ResponseService) {
     this.responseSvc = responseSvc;
+    this.logger.log('IntentsService loaded successfully...')
   }
   private config: IntentConfig = {
     greeting: {
@@ -52,7 +53,7 @@ Use the \`/help\` command to view my options
     help: {
       condition: async (message) => (
         message.toLocaleLowerCase().startsWith('/help') ||
-        message.toLocaleLowerCase().startsWith('help') ||
+        message.toLocaleLowerCase().includes('help') ||
         message.toLocaleLowerCase().includes('can you do') ||
         message.toLocaleLowerCase().includes('do')
       ),
@@ -68,9 +69,14 @@ Use the \`/help\` command to view my options
 You can create, update, and end an order using the \`/order\` command.
 - \`/order\` - Create a new order session
 - \`/orders\` - View all your orders
+- \`/order current\` - View current order
 - \`/order <order_id>\` - View a specific order
-- \`/order <order_id> end\` - End an order session
-- \`/order <order_id> <id of item in pricelist> <count of item>\` - Update a property of an order
+- \`/order cancel\` - End current order session and delete
+- \`/order end\` - End current order session and submit
+- \`/order address\` - Update order pickup address
+- \`/order add item-[itemId], count-[count]; item-[itemId], count-[count]; ...\` - Update a property of an order
+    Eg. order add item-2, count-2; item-3, count-4
+    Use the \`;\` semicolon to add multiple items
                 `
               )
             default:
@@ -99,6 +105,8 @@ Eg. \`/help order\` to view more information about the order command
         message.toLocaleLowerCase().startsWith('/info') ||
         message.toLocaleLowerCase().startsWith('info') ||
         message.toLocaleLowerCase().includes('pricing') ||
+        message.toLocaleLowerCase().includes('price') ||
+        message.toLocaleLowerCase().includes('list') ||
         message.toLocaleLowerCase().includes('about')
       ),
       handler: async (messageEvent) => {
@@ -127,7 +135,6 @@ ${(() => {
     },
     order: {
       condition: async (message, client) => {
-        this.logger.log('order condition => ', message, message.toLocaleLowerCase().includes('order'))
         return (
           // message.toLocaleLowerCase().includes('/order') ||
           message.toLocaleLowerCase().includes('order') ||
@@ -149,20 +156,32 @@ ${(() => {
           }
           await order.save();
           const body = `
-          Your latest order has been updated with the pickup address: ${lEvent.location.address}
-          Update your order details using \`/order ${order.sessionId} <id-of-item-on-price-list> <count-of-items> \`
-          Check \`/info\` to view price list. 
+Your latest order has been updated with the pickup address: ${lEvent.location.address}
+Update your order details using 
+- \`/order add item-[itemId], count-[count]; item-[itemId], count-[count]; ...\` 
+
+  Eg. \`/order add item-2, count-2; item-3, count-4\`
+    Use the \`;\` semicolon to add multiple items
           `
           return this.responseSvc.buttonInteractiveResponse(
             lEvent.from,
             body,
-            [{
-              type: "reply",
-              reply: {
-                id: `button-${randomSixDigits()}`,
-                title: "Pricing"
-              }
-            }],
+            [
+              {
+                type: "reply",
+                reply: {
+                  id: `button-${randomSixDigits()}`,
+                  title: "Pricing"
+                }
+              },
+              {
+                type: "reply",
+                reply: {
+                  id: `${order.sessionId}`,
+                  title: "Order Details"
+                }
+              },
+            ],
           )
         } else if (mEvent.text?.body.split(' ').length === 1) {
           const [command] = mEvent.text?.body.split(' ');
@@ -171,11 +190,18 @@ ${(() => {
             command.toLocaleLowerCase() === 'order' ||
             command.toLocaleLowerCase() === '/order'
           ) {
-            order = await OrderModel.create({
-              sessionId: `ord-${randomSixDigits()}`,
-              session: 'active',
-              user: mEvent.from,
-            })
+            // check if prev open order exists
+            const prev = await OrderModel.find({ user: mEvent.from, session: 'active' });
+            if (!prev[0]) {
+              order = await OrderModel.create({
+                sessionId: `ord-${randomSixDigits()}`,
+                session: 'active',
+                user: mEvent.from,
+              })
+
+            } else {
+              order = prev[0];
+            }
             // return interactive response
             const response = `
           Order session created.
@@ -193,13 +219,13 @@ ${(() => {
                     title: 'Pickup Service',
                   }
                 },
-                {
-                  type: 'reply',
-                  reply: {
-                    id: `d${SPECIAL_DELIMITER}${order.sessionId}`,
-                    title: 'Dropoff Service',
-                  },
-                },
+                // {
+                //   type: 'reply',
+                //   reply: {
+                //     id: `d${SPECIAL_DELIMITER}${order.sessionId}`,
+                //     title: 'Dropoff Service',
+                //   },
+                // },
               ],
             );
 
@@ -210,8 +236,8 @@ ${(() => {
           ) {
             // Show all orders and their session states
             const orders = await OrderModel.find({ user: mEvent.from })
-            .sort({ updatedAt: -1 })
-            .limit(20);
+              .sort({ updatedAt: -1 })
+              .limit(20);
             if (orders.length > 0) {
               let response = `Here are your most recent ${orders.length} orders:\n`;
               orders.forEach((o) => {
@@ -227,13 +253,62 @@ ${(() => {
           bEvent.interactive?.button_reply?.title.split(' ').length === 2
         ) {
           // Display order information
-          const sessionId = mEvent.text?.body.split(' ')[1] || bEvent.interactive?.button_reply?.title.split(' ')[1];
-          order = await OrderModel.findOne({ sessionId, user: mEvent.from });
+          const secondStr = mEvent.text?.body.split(' ')[1] || bEvent.interactive?.button_reply?.id.split(' ')[0];
+          // End order session
+          if (secondStr === 'end' || secondStr === 'complete') {
+            const [order] = await OrderModel.find({ session: 'active', user: mEvent.from })
+              .sort({ createdAt: -1 })
+              .limit(1);
+            if (!order) return this.responseSvc.textResponse(mEvent.from, 'No active order found.');
+            order.session = 'ended';
+            await order.save();
+            const body = order
+              ? `Your Order session has ended and been submitted.`
+              : 'No active order found.'
+            return this.responseSvc.buttonInteractiveResponse(mEvent.from,
+              body,
+              [
+                {
+                  type: 'reply',
+                  reply: {
+                    id: `${order.sessionId}`,
+                    title: 'Order Details',
+                  }
+                },
+              ],
+            );
+          } else if (secondStr === 'cancel' || secondStr === 'delete') {
+            const [order] = await OrderModel.find({ session: 'active', user: mEvent.from })
+              .sort({ createdAt: -1 })
+              .limit(1);
+            if (!order) return this.responseSvc.textResponse(mEvent.from, 'No active order found.');
+            await order.deleteOne();
+            return this.responseSvc.textResponse(mEvent.from, order
+              ? `Your Order has been cancelled.`
+              : 'No active order found.');
+          } else if (secondStr === 'address') {
+            const responseBody = `Please provide the pick up address for your laundry order ${secondStr}.`
+            return this.responseSvc.locationRequestResponse(bEvent.from, responseBody);
+          } else if (secondStr === 'current') {
+            order = null;
+            [order] = await OrderModel.find({ user: mEvent.from, session: 'active' })
+              .sort({ createdAt: -1 })
+              .limit(1);
+          } else if (secondStr.startsWith('ord-')) {
+            order = null;
+            order = await OrderModel.findOne({ user: mEvent.from, sessionId: secondStr });
+          } else { return this.config.order.getResponse(mEvent.from); }
+
           if (!order) {
-            return this.responseSvc.textResponse(mEvent.from, `No active order with session id ${sessionId} found.`);
+            return this.responseSvc.textResponse(mEvent.from, `
+              No active order found.
+              Please create a new order
+              Use the command \`/order\` to create it.`)
           }
           let reply = 'Here\'s your order\n';
           reply += `\nSession ID: ${order.sessionId} *(${order.session})*\n`;
+          const date = new Date(order.createdAt);
+          reply += `Created on: ${date.toTimeString().split(' ')[0]}, ${date.toDateString()}\n`;
           reply += '\nOrder details:\n';
           if (order.toObject().details) {
             let total = 0;
@@ -259,50 +334,54 @@ ${(() => {
               reply += `Address: ${order.toObject()[k as keyof typeof order].address}`
             }
           }
-          this.logger.log(reply)
           return this.responseSvc.textResponse(mEvent.from, reply);
-        } else if (mEvent.text?.body.split(' ').length === 3) {
-          // End order session
-          const [_, sessionId, instruction] = mEvent.text.body.split(' ');
-          if (instruction === 'end' || instruction === 'complete') {
-            await OrderModel.findOneAndUpdate(
-              { sessionId, session: 'active', user: mEvent.from },
-              { session: 'ended' }
-            );
-
-            return this.responseSvc.textResponse(mEvent.from, `Order session with ID ${sessionId} has been ended.`);
-          }
-        } else if (mEvent.text?.body.split(' ').length === 4) {
+        } else {
           // Update order details
-          const [_, sessionId, itemId, count] = mEvent.text.body.split(' ')
-          const order = await OrderModel.findOne({ sessionId, session: 'active' });
-          if (!order) {
-            return this.responseSvc.textResponse(mEvent.from, `
-            No active order with session id ${sessionId} found.
-          `)
+          const [_, instruction, ...query] = mEvent.text.body.split(' ')
+          if (instruction === 'add') {
+            this.logger.log('adding...')
+            const [order] = await OrderModel.find({ user: mEvent.from, session: 'active' }).sort({ createdAt: -1 }).limit(1);
+            if (!order) return this.responseSvc.textResponse(mEvent.from, `No active order found.`)
+
+            if (!order.details) order.details = new Map();
+            const itemList = parseUpdateQuery(query.join(' '));
+            if (!itemList) {
+              return this.responseSvc.textResponse(mEvent.from, `
+Please use this format to update your order.
+\`/order add item-[itemId], count-[count]; item-[itemId], count-[count]; ...\`
+
+Eg. To order 3 shirts and 2 native-men laundry where the shirt's itemId is 5 and native-men's itemId is 2 (as seen from \`/info\`),
+Use => \`/order add item-5, count-3; item-2, count-2\`
+
+Make sure to add the commas and semicolons 👍🏾
+                `)
+            }
+            for (const { itemId, count } of itemList) {
+              order.details.set(`${PriceList[+itemId - 1][0]}`, count)
+              await order.save();
+              this.logger.log('Order updated => ', order.toObject())
+            }
+            return this.responseSvc.buttonInteractiveResponse(
+              mEvent.from,
+              `Order details updated for session ${order.sessionId}.`,
+              [{
+                type: "reply",
+                reply: {
+                  id: `${order.sessionId}`,
+                  title: `Order Details`
+                }
+              }]
+            )
           }
-          if (!order.details) order.details = new Map();
-          order.details.set(`${PriceList[+itemId][0]}`, count)
-          await order.save();
-          this.logger.log('Order updated => ', order.toObject())
-          return this.responseSvc.buttonInteractiveResponse(
-            mEvent.from,
-            `Order details updated for session ${sessionId}.`,
-            [{
-              type: "reply",
-              reply: {
-                id: `button-${randomSixDigits()}`,
-                title: `/order ${sessionId}`
-              }
-            }]
-          )
         }
 
-        return this.config.default.getResponse(mEvent.from);
+        return this.config.order.getResponse(mEvent.from);
       },
       getResponse: (to) => {
         return this.responseSvc.textResponse(to!, `
-        A session for a new order has started.
+          Use the following format to make an order
+          \`/order\`
+        Use \`/help order\` to find out how to use other commands
         `)
       }
     },
@@ -475,7 +554,18 @@ Use \`/help\` to view my options.
   }
 }
 
+const parseUpdateQuery = (query: string) => {
+  const itemQueries = query.split(';');
+  const parsedItemQueries = [];
+  for (const itemQuery of itemQueries) {
+    // item-<id>, count-<count>; ...
+    const [itemId, count] = itemQuery.split(',').map((part) => part.split('-')[1].trim());
+    if (!itemId || !count) return null;
+    parsedItemQueries.push({ itemId, count });
 
+  }
+  return parsedItemQueries;
+}
 
 export const IntentsSvc = new IntentsService(responseService);
 
