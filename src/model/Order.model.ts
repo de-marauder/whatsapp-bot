@@ -21,6 +21,7 @@ export interface IOrder extends Document {
   dropoffDate: Date;
   dropoffAddress: Address;
   droppedOff: boolean;
+  createdAt: Date;
 }
 
 const OrderSchema = new Schema<IOrder>(
