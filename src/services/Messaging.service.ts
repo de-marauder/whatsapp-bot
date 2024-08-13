@@ -6,9 +6,13 @@ import { LogTrail } from '../helpers/Logger';
 import { ResponseTypes } from '../types/response.types';
 import { AnyMessageEvent, MessageContact, MessageEvent } from '../types/message.types';
 
+let WHATSAPP_API_URL = `https://graph.facebook.com/v20.0/${env(EnvVars.TEST_PHONE_NUMBER_ID)}/messages`;
+let ACCESS_TOKEN = `${env(EnvVars.TEST_ACCESS_TOKEN)}`;
 
-const WHATSAPP_API_URL = `https://graph.facebook.com/v20.0/${env(EnvVars.PHONE_NUMBER_ID)}/messages`;
-const ACCESS_TOKEN = `${env(EnvVars.ACCESS_TOKEN)}`;
+if (env(EnvVars.NODE_ENV) === 'production') {
+  WHATSAPP_API_URL = `https://graph.facebook.com/v20.0/${env(EnvVars.PHONE_NUMBER_ID)}/messages`;
+  ACCESS_TOKEN = `${env(EnvVars.ACCESS_TOKEN)}`;
+}
 
 export class MessagingService {
   private readonly logger = new LogTrail('MessagingService');

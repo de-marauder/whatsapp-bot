@@ -6,7 +6,10 @@
   "license": "ISC",
   "main": "src/index.js",
   "scripts": {
-    "start": "node dist/index.js",
+    "ngrok:start": "ngrok start --config=ngrok.config.yaml bot &",
+    "prestart": "yarn ngrok:start && yarn build",
+    "start": "NODE_ENV=production node build/index.js",
+    "predev": "yarn ngrok:start",
     "dev": "nodemon --watch src --exec ts-node src/index.ts",
     "build": "tsc"
   },
